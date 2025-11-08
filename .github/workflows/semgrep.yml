@@ -60,7 +60,7 @@ jobs:
             head -n 20 "$CONFIG_FILE"
           fi
 
-      - name: Run Semgrep JSON Scan
+      - name: Run Semgrep JSON scan
         shell: bash
         run: |
           set -euo pipefail
@@ -69,6 +69,7 @@ jobs:
           export PYTHONUTF8=1
 
           mkdir -p reports
+
           if [ "$CONFIG" = "auto" ]; then
             semgrep scan \
               --config p/php \
@@ -84,6 +85,7 @@ jobs:
               --timeout 60 \
               --json -o reports/semgrep.json src/wp_plugins
           fi
+
 
       - name: Write Markdown Summary
         shell: bash
