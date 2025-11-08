@@ -106,13 +106,6 @@ jobs:
           exit $RET
 
 
-      #위치 확
-      - name: Check files
-        run: |
-          pwd
-          ls -R .
-
-
       # SARIF 출력 (에러 숨김 없음)
       - name: Semgrep SARIF
         run: |
@@ -120,6 +113,29 @@ jobs:
           semgrep scan --config ".semgrep/.semgrep.yml" \
             --metrics=off --timeout 10 \
             --sarif -o reports/semgrep.sarif
+
+      # Semgrep SARIF 스텝 이후에 추가
+      - name: Normalize SARIF filename
+        run: |
+          set -e
+          mkdir -p reports
+          FIRST_SARIF=$(find reports -maxdepth 1 -type f -name '*.sarif' | head -n 1 || true)
+          echo "Found: $FIRST_SARIF"
+          if [ -n "$FIRST_SARIF" ]; then
+            mv -f "$FIRST_SARIF" reports/semgrep.sarif
+          else
+            echo "No sarif file found in reports/"
+            ls -la reports || true
+            exit 1
+          fi
+
+      # Upload SARIF (use existing upload action)
+      - name: Upload SARIF
+        if: always() && hashFiles('reports/semgrep.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/semgrep.sarif
+
 
 
       # GitHub Actions Job Summary에 항상 요약 출력
@@ -147,12 +163,6 @@ jobs:
             echo "- Semgrep produced no JSON (likely no files matched). Check the **List PHP files** step above." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # Code Scanning에 SARIF 업로드 (파일 있을 때만)
-      - name: Upload SARIF
-        if: always() && hashFiles('reports/semgrep.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: reports/semgrep.sarif
 
       # 리포트 파일 보존(다운로드용)
       - name: Upload artifacts
