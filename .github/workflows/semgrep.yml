@@ -72,7 +72,7 @@ jobs:
         run: |
           set -e
           echo "=== Scanning target files ==="
-          ls -R src/wp-plugin || true
+          ls -R src/wp-plugins || true
           echo "=== Running Semgrep with custom rules ==="
           semgrep scan \
             --config ".semgrep/.semgrep.yml" \
@@ -80,7 +80,7 @@ jobs:
             --sarif -o reports/semgrep.sarif \
             --verbose \
             --debug \
-            src/wp-plugin
+            src/wp-plugins
 
 
       # JSON 출력 (에러 숨김 없음)
