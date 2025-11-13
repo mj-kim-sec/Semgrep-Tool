@@ -37,33 +37,52 @@ jobs:
         run: |
           pip install --upgrade pip semgrep
           sudo apt-get update && sudo apt-get install -y jq
+
       - name: Prepare config & reports dir
         run: |
           set -euo pipefail
+
+          # 안전한 초기화
           CONFIG_FILES=""
+
+          # 우선 로컬 packs / rules 파일이 있으면 둘 다 추가
           if [ -f ".semgrep/packs-only.yml" ]; then
             CONFIG_FILES+="--config .semgrep/packs-only.yml "
           fi
+
           if [ -f ".semgrep/local-rules.yml" ]; then
             CONFIG_FILES+="--config .semgrep/local-rules.yml "
           fi
 
-          # 둘 다 없으면 auto fallback
+          # 기존 단일 파일 이름(.semgrep/.semgrep.yml 또는 .semgrep.yml)을
+          # 호환성 차원에서 아직 지원하고 싶다면 아래도 체크(선택적)
           if [ -z "$CONFIG_FILES" ]; then
-            CONFIG_FILES="--config p/php --config p/javascript"
+            if [ -f ".semgrep/.semgrep.yml" ]; then
+              # 기존 통합형 파일이 있을 경우 (구버전 지원)
+              CONFIG_FILES="--config .semgrep/.semgrep.yml "
+            elif [ -f ".semgrep.yml" ]; then
+              CONFIG_FILES="--config .semgrep.yml "
+            else
+              # 최종 fallback: 두 공식 pack 사용 (auto)
+              CONFIG_FILES="--config p/php --config p/javascript "
+            fi
           fi
+
+          # trim trailing space (optional)
+          CONFIG_FILES="$(echo -n "$CONFIG_FILES" | sed -e 's/[[:space:]]*$//')"
 
           echo "CONFIG_FILES=$CONFIG_FILES" >> "$GITHUB_ENV"
 
-          mkdir -p reports
-          echo "== CONFIG chosen =="
-          echo "$CONFIG_FILE"
+          # 디버그 출력 (로그에 남겨 문제 파악하기 쉽게)
+          echo "== CONFIG_FILES chosen =="
+          echo "$CONFIG_FILES"
           echo "== List .semgrep dir (if any) =="
           ls -la .semgrep || true
-          echo "== Show config (first 20 lines) =="
-          if [ -f "$CONFIG_FILE" ]; then
-            head -n 20 "$CONFIG_FILE"
-          fi
+          echo "== Show head of local rule files (if present) =="
+          [ -f ".semgrep/packs-only.yml" ] && sed -n '1,80p' .semgrep/packs-only.yml || true
+          [ -f ".semgrep/local-rules.yml" ] && sed -n '1,80p' .semgrep/local-rules.yml || true
+
+
       - name: Normalize .semgrep rule files (remove BOM / ensure UTF-8)
         shell: bash
         run: |
@@ -82,6 +101,7 @@ jobs:
           else
             echo ".semgrep directory not present, skipping normalization"
           fi
+
       - name: Semgrep debug run (capture stdout/stderr & env)
         shell: bash
         run: |
@@ -128,35 +148,6 @@ jobs:
             echo "No /tmp/semgrep-*.rules file found"
           fi
 
-
-      - name: Write Markdown Summary
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "## 🧪 Semgrep Summary" >> "$GITHUB_STEP_SUMMARY"
-          if [ -s reports/semgrep.json ]; then
-            TOTAL=$(jq '.results | length // 0' reports/semgrep.json)
-            echo "- Total findings: **$TOTAL**" >> "$GITHUB_STEP_SUMMARY"
-            for sev in ERROR WARNING INFO; do
-              COUNT=$(jq --arg sev "$sev" '[.results[] | select(.extra.severity==$sev)] | length' reports/semgrep.json)
-              echo "  - $sev: **$COUNT**" >> "$GITHUB_STEP_SUMMARY"
-            done
-            echo -e "\n### Top findings (up to 10)\n" >> "$GITHUB_STEP_SUMMARY"
-            jq -r '
-              .results[:10][] 
-              | {check_id, path: .path, start: .start.line, message: .extra.message, severity: .extra.severity}
-              | "| \(.severity) | \(.check_id) | \(.path):\(.start) | \(.message | gsub("\\n"; " ")) |"
-            ' reports/semgrep.json >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "- Semgrep produced no JSON (likely no matching files). Check the PHP file listing step." >> "$GITHUB_STEP_SUMMARY"
-          fi
-        env:
-          pythonLocation: /opt/hostedtoolcache/Python/3.14.0/x64
-          PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.14.0/x64/lib/pkgconfig
-          Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.14.0/x64
-          Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.14.0/x64
-          Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.14.0/x64
-          LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.14.0/x64/lib
 
       - name: Write Enhanced Markdown Summary
         shell: bash
