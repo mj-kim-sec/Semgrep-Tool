@@ -93,6 +93,9 @@ rules:
       - pattern: pcntl_exec($SINK, ...) # 현재 프로세스를 지정된 프로그램으로 교체 실행
       - pattern: popen($SINK, ...) #양방향 파이프를 열어 명령어와 데이터를 주고받음(결과 파일 포인터 형태 반환)
       - pattern: "`...$SINK...`" #백틱 안의 내용이 OS 명령으로 실행
+      - pattern: $SINK($ARGS, ...) # <-- 오염된 데이터 $SINK가 함수 이름으로 사용됨
+      - pattern: call_user_func($SINK, ...)
+      - pattern: call_user_func_array($SINK, ...)
 
 
   # Unrestricted Upload of File Rule for WP
