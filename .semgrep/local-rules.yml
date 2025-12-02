@@ -85,9 +85,7 @@ rules:
       - pattern: escapeshellarg($X) # $X를 하나의 독립적인 인자로 변환
       - pattern: intval($X) # $X를 정수로 강제 변환
       - pattern: (int) $X # $X를 정수로 강제 변환
-      - pattern: in_array($X, $ALLOWED_LIST) # $X가 $ALLOWED_LIST 배열에 포함되는지 확인
-      - pattern: in_array($X, $SAFE_FUNCS, ...) # 세 번째 인자는 엄격 모드(strict) 여부
-      - pattern: array_key_exists($X, $ALLOWED_MAP) # 배열의 키(Key)를 화이트리스트로 사용하는 경우
+
     pattern-sinks:
       - pattern: system($SINK, ...) # 외부 프로그램이나 시스템 명령어를 실행하고 화면 출력
       - pattern: exec($SINK, ...) # 외부 프로그램 실행 결과 마지막줄을 문자열로 반환
@@ -96,9 +94,31 @@ rules:
       - pattern: pcntl_exec($SINK, ...) # 현재 프로세스를 지정된 프로그램으로 교체 실행
       - pattern: popen($SINK, ...) #양방향 파이프를 열어 명령어와 데이터를 주고받음(결과 파일 포인터 형태 반환)
       - pattern: "`...$SINK...`" #백틱 안의 내용이 OS 명령으로 실행
-      - pattern: $SINK($ARGS, ...) # <-- 오염된 데이터 $SINK가 함수 이름으로 사용됨
-      - pattern: call_user_func($SINK, ...)
-      - pattern: call_user_func_array($SINK, ...)
+
+
+  # 1. eval() 함수 자체를 사용하는 경우 탐지 (Taint Flow와 무관하게 즉시 경고)
+  - id: php-eval-usage-warning
+    message: >
+      [CRITICAL] eval() 함수가 사용되었습니다. eval()은 임의 코드 실행(RCE) 위험을 내포하므로 절대 사용해서는 안 됩니다.
+    languages: [php]
+    severity: ERROR
+    pattern: eval($X);
+
+    # 2. file_get_contents(사용자 입력)의 반환값을 Source로 정의
+  - id: php-remote-file-source
+    message: "원격 파일 내용이 오염원으로 사용될 가능성이 있습니다."
+    languages: [php]
+    mode: taint
+    severity: INFO # 이 패턴 자체는 정보성으로 두고, Sink에 연결될 때만 ERROR 발생
+    
+      # 새로운 pattern-sources 항목 추가 (Taint Mode 규칙에 통합)
+      pattern-sources:
+        # 1. 사용자가 제어하는 URL에서 데이터를 읽어오는 함수 호출
+        - pattern: file_get_contents($_GET[$X]) 
+        - pattern: file_get_contents($_REQUEST[$X])
+        # 2. 기타 외부 데이터를 읽어오는 함수 (curl, fopen 등)도 추가 가능
+        - pattern: file_get_contents(..., $_GET[$X], ...)
+        - pattern: file_get_contents($X, ...) where $X = $_GET[...]
 
 
   # Unrestricted Upload of File Rule for WP
