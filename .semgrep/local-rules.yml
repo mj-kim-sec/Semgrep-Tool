@@ -66,25 +66,32 @@ rules:
       - pattern: print sprintf($F, $SINK, ...); # $F 형식에 맞춰 변수를 합친 문자열만 출력
 
 
-  # CMD Injection Basic Rule for WP
+  # CMD Injection Basic Rule for WP (Source 통합)
   - id: wp-command-injection-taint
     message: >
-      [보안 위험] 치명적인 OS 커맨드 인젝션(RCE)입니다.
-      사용자 입력이 escapeshellarg() 처리 없이 시스템 명령어 함수로 전달되었습니다.
+      [보안 위험] 치명적인 OS 커맨드 인젝션(RCE)입니다. 사용자 입력이나 원격 파일 내용이 시스템 명령어 함수로 전달되었습니다.
     languages: [php]
     severity: ERROR
     mode: taint
     metadata:
       cwe: "CWE-78: OS Command Injection"
     pattern-sources:
+      # 1. 일반 사용자 입력
       - pattern: $_GET[$X]
       - pattern: $_POST[$X]
       - pattern: $_REQUEST[$X]
+      # 2. 원격 파일 로딩 (file_get_contents의 반환값을 Source로 추가)
+      - pattern: file_get_contents($_GET[$X])
+      - pattern: file_get_contents($_REQUEST[$X])
+      - pattern: file_get_contents(..., $_GET[$X], ...)
+      - pattern: file_get_contents($X, ...) where $X = $_GET[...]
+
     pattern-sanitizers:
       - pattern: escapeshellcmd($X) # 쉘 명령어로 실행되지 않도록 필터링
       - pattern: escapeshellarg($X) # $X를 하나의 독립적인 인자로 변환
       - pattern: intval($X) # $X를 정수로 강제 변환
       - pattern: (int) $X # $X를 정수로 강제 변환
+
     pattern-sinks:
       - pattern: system($SINK, ...) # 외부 프로그램이나 시스템 명령어를 실행하고 화면 출력
       - pattern: exec($SINK, ...) # 외부 프로그램 실행 결과 마지막줄을 문자열로 반환
@@ -95,50 +102,46 @@ rules:
       - pattern: "`...$SINK...`" #백틱 안의 내용이 OS 명령으로 실행
 
 
+  # Code Injection Taint Rule (eval, assert)
+  - id: wp-code-injection-taint
+    message: >
+      [CRITICAL] 사용자 입력($SINK)이나 원격 파일 내용이 eval(), assert() 등의 PHP 코드 실행 함수에 전달되었습니다. (RCE 위험)
+    languages: [php]
+    severity: ERROR
+    mode: taint
+    metadata:
+      cwe: "CWE-94: Improper Control of Generation of Code"
+    pattern-sources:
+      # CMD Injection 규칙과 동일하게 모든 Source를 포함 (file_get_contents 포함)
+      - pattern: $_GET[$X]
+      - pattern: $_POST[$X]
+      - pattern: $_REQUEST[$X]
+      - pattern: $_COOKIE[$X]
+      - pattern: file_get_contents($_GET[$X]) # <--- Social Warfare 케이스 대응
+      - pattern: file_get_contents($_REQUEST[$X])
+      - pattern: file_get_contents(..., $_GET[$X], ...)
+      - pattern: file_get_contents($_GET[$X])
+      - pattern: file_get_contents($X, ...) where $X = $_GET[...]
+      
+    pattern-sanitizers:
+      # eval 앞에서는 타입 캐스팅만 유효합니다.
+      - pattern: intval($X)
+      - pattern: (int) $X
+      - pattern: (bool) $X
+      
+    pattern-sinks:
+      - pattern: eval($SINK);
+      - pattern: assert($SINK, ...); # 예상치 못한 예외처리를 위한 함수
+      - pattern: create_function($ARGS, $SINK); # 사용자의 입력값이 함수 본문으로 사용, PHP 7.2버전에서 제거
 
-  # 1. eval() 함수 자체를 사용하는 경우 탐지 (Taint Flow와 무관하게 즉시 경고)
+  # Eval 사용 자체 경고 (Taint Flow 무관)
   - id: php-eval-usage-warning
     message: >
-      [CRITICAL] eval() 함수가 사용되었습니다. eval()은 임의 코드 실행(RCE) 위험을 내포하므로 절대 사용해서는 안 됩니다.
+      [CRITICAL] eval() 함수가 사용되었습니다. eval()은 코드 인젝션 위험을 내포하므로 절대 사용해서는 안 됩니다.
     languages: [php]
     severity: ERROR
     pattern: eval($X);
 
-  # 2. file_get_contents(사용자 입력)의 반환값을 Source로 정의 + RCE 탐지
-  # 이 규칙은 사용자 제어 URL에서 로드된 내용이 RCE Sink로 흐르는 것을 직접 탐지합니다.
-  - id: php-remote-file-rce-taint
-    message: >
-      [CRITICAL] 사용자 제어 URL에서 로드된 원격 파일 내용($SINK)이 OS 명령어 실행 함수에 전달되었습니다. (RCE 위험)
-    languages: [php]
-    mode: taint
-    severity: ERROR
-    
-    # 새로운 pattern-sources 항목 (file_get_contents 반환값을 오염원으로 설정)
-    pattern-sources:
-      - pattern: file_get_contents($_GET[$X]) 
-      - pattern: file_get_contents($_REQUEST[$X])
-      - pattern: file_get_contents(..., $_GET[$X], ...)
-      - pattern: file_get_contents($X, ...) where $X = $_GET[...] # $X가 $_GET일 때
-      # 다른 모든 사용자 입력 소스도 함께 포함시켜야 합니다.
-      - pattern: $_GET[$X] 
-      - pattern: $_POST[$X] 
-      - pattern: $_REQUEST[$X] 
-      
-    # Sanitizer와 Sink는 CMD Injection 규칙과 동일하게 유지
-    pattern-sanitizers:
-      - pattern: escapeshellcmd($X)
-      - pattern: escapeshellarg($X)
-      - pattern: intval($X)
-      - pattern: (int) $X
-      
-    pattern-sinks:
-      - pattern: system($SINK, ...)
-      - pattern: exec($SINK, ...)
-      - pattern: passthru($SINK, ...)
-      - pattern: shell_exec($SINK, ...)
-      - pattern: pcntl_exec($SINK, ...)
-      - pattern: popen($SINK, ...)
-      - pattern: "`...$SINK...`"
 
 
   # Unrestricted Upload of File Rule for WP
@@ -182,6 +185,10 @@ rules:
           move_uploaded_file($_FILES[$X]['tmp_name'], $dest);
         # 파일 경로 생성 및 이동
         # 경로 조작, 웹 루트 저장의 가능성을 수동 확인
+
+
+
+  
 
   # --- Cross-Site Request Forgery Rule for WP ---
   - id: wp-missing-nonce-check-admin-post-update_option # 인증 부재 시 임의의 설정 변경이 가능
