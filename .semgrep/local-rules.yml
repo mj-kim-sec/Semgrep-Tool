@@ -81,11 +81,10 @@ rules:
       - pattern: $_GET[$X]
       - pattern: $_POST[$X]
       - pattern: $_REQUEST[$X]
-      # 2. 원격 파일 로딩 (file_get_contents의 반환값을 Source로 추가)
-      - pattern: file_get_contents($_GET[$X])
-      - pattern: file_get_contents($_REQUEST[$X])
-      - pattern: file_get_contents(..., $_GET[$X], ...)
-      - pattern: file_get_contents($X, ...) where $X = $_GET[...]
+      - pattern: file_get_contents($SOURCE, ...) //오염 전파 부
+      - pattern: file($SOURCE, ...)
+      - pattern: readfile($SOURCE)
+      - pattern: fopen($SOURCE, ...)
 
     pattern-sanitizers:
       - pattern: escapeshellcmd($X) # 쉘 명령어로 실행되지 않도록 필터링
@@ -117,7 +116,7 @@ rules:
       - pattern: $_POST[$X]
       - pattern: $_REQUEST[$X]
       - pattern: $_COOKIE[$X]
-      - pattern: file_get_contents($SOURCE, ...) //오염 전파 부
+      - pattern: file_get_contents($SOURCE, ...) //오염 전파 부분
       - pattern: file($SOURCE, ...)
       - pattern: readfile($SOURCE)
       - pattern: fopen($SOURCE, ...)
@@ -146,32 +145,31 @@ rules:
   # Unrestricted Upload of File Rule for WP
   - id: wp-file-upload-move-raw
     message: >
-      [보안 경고] 이 패턴 주변에 if ($file_ext === 'jpg')와 같은 확장자 확인 로직이나,
-      파일 내용을 확인하는 MIME 타입 검사 로직이 있어야 안전합니다.
+      [보안 경고] 이 패턴 주변에 확장자 확인 로직이나, 파일 내용을 확인하는 MIME 타입 검사 로직이 있어야 안전합니다.
     languages: [php]
     severity: WARNING
     metadata:
       cwe: "CWE-434: Unrestricted Upload of File with Dangerous Type"
-    pattern: move_uploaded_file($_FILES[$X]['tmp_name'], $DEST);
-    # raw 원시 파일 이동 함수(Raw Move)
-    # 함수 자체의 파일의 종류나 확장자에 대한 검사 내장이 없음. 주변에 검증 로직이 따로 있는지 수동 확인
+    pattern-either:
+      # 1. WP/PHP의 표준 파일 이동 함수
+      - pattern: move_uploaded_file($_FILES[$X]['tmp_name'], $DEST);
+      - pattern: wp_handle_upload($_FILES[$X], ...); 
+      
+      # 2. PclZip 추출 함수 (WP All Import와 같은 플러그인에서 사용)
+      - pattern: |
+          $archive = new PclZip($FILE);
+          ...
+          $v_result_list = $archive->extract(...);   
 
-  - id: wp-file-upload-handle-basic
-    message: >
-      [보안 경고] wp_handle_upload를 호출할 때 파일 종류를 제한하는 필터나,
-      파일 이름을 안전하게 정화하는 워드프레스 함수(sanitize_file_name)를 사용하는지 확인해야 합니다.
-    languages: [php]
-    severity: WARNING
-    metadata:
-      cwe: "CWE-434: Unrestricted Upload of File with Dangerous Type"
-    pattern: wp_handle_upload($_FILES[$X], ...);
-    # 워드프레스 표준 업로드 처리 함수(WP Standard)
-    # 파일 확장자 및 타입 검사, 이름 필터링의 보안 로직을 별도이 인수로 설정했는지 수동 확인
-
+      # 3. ZipArchive 추출 함수 (PHP 내장 표준)
+      - pattern: |
+          $zip = new ZipArchive();
+          ...
+          $zip->extractTo($DEST);
 
   - id: wp-file-upload-into-webroot
     message: >
-      [보안 경고] 파일 이름($DEST)**을 생성할 때 sanitize_file_name()과 같은 함수를 사용하여 경로 조작을 막고,
+      [보안 경고] 파일 이름($DEST)을 생성할 때 sanitize_file_name()과 같은 함수를 사용하여 경로 조작을 막고,
       파일 이름을 안전하게 정화했는지 확인해야 합니다.
     languages: [php]
     severity: WARNING
@@ -184,9 +182,6 @@ rules:
           move_uploaded_file($_FILES[$X]['tmp_name'], $dest);
         # 파일 경로 생성 및 이동
         # 경로 조작, 웹 루트 저장의 가능성을 수동 확인
-
-
-
   
 
   # --- Cross-Site Request Forgery Rule for WP ---
