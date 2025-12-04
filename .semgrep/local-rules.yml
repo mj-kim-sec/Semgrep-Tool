@@ -157,10 +157,18 @@ rules:
       
       # 2. PclZip 추출 함수 (WP All Import와 같은 플러그인에서 사용)
       - pattern: |
-          $archive = new PclZip($FILE);
+          $ARCHIVE = new PclZip($FILE);
           ...
-          $archive->extract($ARGS); 
-
+          $ARCHIVE->extract($ARGS);
+      - pattern-either:
+        # 1. 일반적인 할당 형태
+        - pattern: $archive->extract(...)
+        # 2. if 문 내 할당 형태
+        - pattern: |
+            if (($VARS = $archive->extract(...)) == 0) {
+              ...
+            }
+                    
       # 3. ZipArchive 추출 함수 (PHP 내장 표준)
       - pattern: |
           $zip = new ZipArchive();
