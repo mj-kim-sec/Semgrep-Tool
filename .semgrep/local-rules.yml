@@ -159,7 +159,7 @@ rules:
       - pattern: |
           $archive = new PclZip($FILE);
           ...
-          $v_result_list = $archive->extract(...);   
+          $archive->extract($ARGS); 
 
       # 3. ZipArchive 추출 함수 (PHP 내장 표준)
       - pattern: |
